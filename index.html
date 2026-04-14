@@ -380,28 +380,9 @@
         <div class="card"><div class="card-title">💰 Lucro por Produto</div><div id="relLucro"></div></div>
       </div>
       <div class="card"><div class="card-title">📋 Todas as Vendas</div><div id="relVendas" style="max-height:400px;overflow-y:auto;"></div></div>
-    </div>
 
     <!-- MARKETPLACE -->
     <div id="page-marketplace" class="page">
-
-      <!-- HEADER -->
-      <div style="background:linear-gradient(135deg,rgba(139,92,246,0.12),rgba(139,92,246,0.04));border:1px solid rgba(139,92,246,0.2);border-radius:var(--radius);padding:24px 28px;margin-bottom:24px;">
-        <div style="display:flex;align-items:center;gap:14px;margin-bottom:10px;">
-          <span style="font-size:28px;">🛒</span>
-          <div>
-            <div style="font-family:'Cormorant Garamond',serif;font-size:22px;font-weight:600;">Precificação para Marketplaces</div>
-            <div style="font-size:12px;color:var(--text-muted);margin-top:2px;">Calcule o preço ideal para vender em Shopee, TikTok Shop, SHEIN, Mercado Livre e Amazon</div>
-          </div>
-        </div>
-        <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:14px;">
-          <span style="font-size:11px;background:var(--surface);border:1px solid var(--border);border-radius:100px;padding:4px 12px;">🟠 Shopee 14%</span>
-          <span style="font-size:11px;background:var(--surface);border:1px solid var(--border);border-radius:100px;padding:4px 12px;">🎵 TikTok 8%</span>
-          <span style="font-size:11px;background:var(--surface);border:1px solid var(--border);border-radius:100px;padding:4px 12px;">👗 SHEIN 18%</span>
-          <span style="font-size:11px;background:var(--surface);border:1px solid var(--border);border-radius:100px;padding:4px 12px;">🟡 Mercado Livre 12% + R$5</span>
-          <span style="font-size:11px;background:var(--surface);border:1px solid var(--border);border-radius:100px;padding:4px 12px;">📦 Amazon 15%</span>
-        </div>
-      </div>
 
       <!-- CALCULADORA INDIVIDUAL -->
       <div class="grid-2 section-gap">
@@ -843,53 +824,96 @@ function renderPrecMateriais() {
 }
 
 function calcPreco() {
-  const custoMat=precMatList.reduce((s,x)=>{const mat=state.materiais.find(m=>m.id===x.matId);return s+(mat?mat.custo*x.qtd:0);},0);
-  const hd=parseFloat(document.getElementById('moHorasDia')?.value)||8;
-  const di=parseFloat(document.getElementById('moDias')?.value)||22;
-  const sal=parseFloat(document.getElementById('moSalario')?.value)||0;
-  const tmp=parseFloat(document.getElementById('moTempo')?.value)||0;
-  // Salva salário desejado no localStorage para o Dashboard usar
+  // 1. MATERIAIS
+  const custoMat = precMatList.reduce((s,x)=>{
+    const mat=state.materiais.find(m=>m.id===x.matId);
+    return s+(mat?mat.custo*x.qtd:0);
+  },0);
+
+  // 2. MÃO DE OBRA
+  // Custo/hora = salário ÷ (horas/dia × dias/mês)
+  // Custo/peça = custo/hora × (minutos da peça ÷ 60)
+  const hd  = parseFloat(document.getElementById('moHorasDia')?.value)||0;
+  const di  = parseFloat(document.getElementById('moDias')?.value)||0;
+  const sal = parseFloat(document.getElementById('moSalario')?.value)||0;
+  const tmp = parseFloat(document.getElementById('moTempo')?.value)||0;
   if(sal>0) localStorage.setItem('mb_salario', sal);
-  const totMin=hd*di*60;
-  const custoHora=totMin>0?sal/(hd*di):0;
-  const custoMao=totMin>0&&sal>0?(sal/totMin)*tmp:0;
-  set('rCustoHora',fmt(custoHora)); set('rMaoPeca',fmt(custoMao));
-  const totCust=state.custos.reduce((s,c)=>s+c.valor,0);
-  const cvar=totCust>0?totCust/100:0;
-  const custoTotal=custoMat+custoMao+cvar;
-  const mg=parseFloat(document.getElementById('precMargem')?.value)||0;
-  const imp=parseFloat(document.getElementById('precImposto')?.value)||0;
-  // Markup: preço = custo × (1 + markup/100), depois aplica imposto por fora
-  const pv = custoTotal * (1 + mg/100) * (1 + imp/100);
-  const lu = pv - custoTotal;
+  const totalHorasMes = hd * di;
+  const custoHora = totalHorasMes > 0 ? sal / totalHorasMes : 0;
+  const custoMao  = custoHora > 0 ? custoHora * (tmp / 60) : 0;
+  set('rCustoHora', fmt(custoHora));
+  set('rMaoPeca',   fmt(custoMao));
+
+  // 3. CUSTOS VARIÁVEIS
+  // Rateio: total de custos fixos do mês ÷ estimativa de peças produzidas no mês
+  // Estimativa de peças = horas totais do mês ÷ (tempo por peça em horas)
+  const totCustos = state.custos.reduce((s,c)=>s+c.valor,0);
+  let cvar = 0;
+  if(totCustos > 0) {
+    const pecasPorMes = (tmp > 0 && totalHorasMes > 0) ? (totalHorasMes * 60) / tmp : 100;
+    cvar = totCustos / pecasPorMes;
+  }
+
+  // 4. CUSTO TOTAL DA PEÇA
+  const custoTotal = custoMat + custoMao + cvar;
+
+  // 5. PREÇO DE VENDA
+  // Fórmula simples: Preço = Custo + Lucro% sobre o custo + Imposto% sobre o custo
+  // Exemplo: custo R$20, lucro 40% = R$20 + R$8 = R$28
+  const mg  = parseFloat(document.getElementById('precMargem')?.value)||0;
+  const imp = parseFloat(document.getElementById('precImposto')?.value)||0;
+  const lucroValor   = custoTotal * (mg/100);
+  const impostoValor = custoTotal * (imp/100);
+  const pv = custoTotal + lucroValor + impostoValor;
+  const lu = pv - custoTotal - impostoValor; // lucro real (sem imposto)
   const mr = pv > 0 ? ((lu/pv)*100).toFixed(1) : 0;
-  set('rMateriais',fmt(custoMat)); set('rMao',fmt(custoMao)); set('rCustoVar',fmt(cvar));
-  set('rCustoTotal',fmt(custoTotal)); set('rPrecoVenda',fmt(pv)); set('rLucroUnit',fmt(lu)); set('rMargemReal',mr+'%');
-  const elcv=document.getElementById('precCustosVar');
-  if(elcv) elcv.innerHTML=state.custos.length
-    ?`<div style="font-size:13px;color:var(--text-muted);">Total mensal: <b style="color:var(--text);">${fmt(totCust)}</b><br><span style="font-size:11px;">Rateio estimado por peça: ${fmt(cvar)}</span></div>`
-    :`<div style="font-size:12px;color:var(--text-dim);">Nenhum custo variável cadastrado.</div>`;
+
+  set('rMateriais',  fmt(custoMat));
+  set('rMao',        fmt(custoMao));
+  set('rCustoVar',   fmt(cvar));
+  set('rCustoTotal', fmt(custoTotal));
+  set('rPrecoVenda', fmt(pv));
+  set('rLucroUnit',  fmt(lu));
+  set('rMargemReal', mr+'%');
+
+  const elcv = document.getElementById('precCustosVar');
+  if(elcv) {
+    if(state.custos.length) {
+      const pecasPorMes = (tmp > 0 && totalHorasMes > 0) ? Math.round((totalHorasMes*60)/tmp) : 100;
+      elcv.innerHTML = `<div style="font-size:13px;color:var(--text-muted);">
+        Total mensal de custos: <b style="color:var(--text);">${fmt(totCustos)}</b><br>
+        Estimativa de peças/mês: <b style="color:var(--text);">${pecasPorMes} peças</b><br>
+        <span style="font-size:11px;">Rateio por peça: <b style="color:var(--purple-light);">${fmt(cvar)}</b></span>
+      </div>`;
+    } else {
+      elcv.innerHTML = `<div style="font-size:12px;color:var(--text-dim);">Nenhum custo variável cadastrado.</div>`;
+    }
+  }
 }
 
 async function salvarPrecificacao() {
   const nome=document.getElementById('precNome')?.value?.trim();
   if(!nome) return toast('Informe o nome do produto.','error');
   setBtnLoading('btnSalvarPrec',true,'💾 Salvar Precificação');
-  const hd=parseFloat(document.getElementById('moHorasDia')?.value)||8;
-  const di=parseFloat(document.getElementById('moDias')?.value)||22;
-  const sal=parseFloat(document.getElementById('moSalario')?.value)||0;
-  const tmp=parseFloat(document.getElementById('moTempo')?.value)||0;
-  const totMin=hd*di*60;
-  const custoMao=totMin>0&&sal>0?(sal/totMin)*tmp:0;
-  const custoMat=precMatList.reduce((s,x)=>{const mat=state.materiais.find(m=>m.id===x.matId);return s+(mat?mat.custo*x.qtd:0);},0);
-  const totCust=state.custos.reduce((s,c)=>s+c.valor,0);
-  const cvar=totCust/100;
-  const custo_total=custoMat+custoMao+cvar;
-  const mg=parseFloat(document.getElementById('precMargem')?.value)||0;
-  const imp=parseFloat(document.getElementById('precImposto')?.value)||0;
-  const preco_venda = custo_total * (1 + mg/100) * (1 + imp/100);
-  const lucro_unit=preco_venda-custo_total;
-  const margemR=preco_venda>0?parseFloat(((lucro_unit/preco_venda)*100).toFixed(1)):0;
+  const hd  = parseFloat(document.getElementById('moHorasDia')?.value)||0;
+  const di  = parseFloat(document.getElementById('moDias')?.value)||0;
+  const sal = parseFloat(document.getElementById('moSalario')?.value)||0;
+  const tmp = parseFloat(document.getElementById('moTempo')?.value)||0;
+  const totalHorasMes = hd * di;
+  const custoHora = totalHorasMes > 0 ? sal / totalHorasMes : 0;
+  const custoMao  = custoHora > 0 ? custoHora * (tmp/60) : 0;
+  const custoMat  = precMatList.reduce((s,x)=>{const mat=state.materiais.find(m=>m.id===x.matId);return s+(mat?mat.custo*x.qtd:0);},0);
+  const totCustos = state.custos.reduce((s,c)=>s+c.valor,0);
+  const pecasPorMes = (tmp > 0 && totalHorasMes > 0) ? (totalHorasMes*60)/tmp : 100;
+  const cvar = totCustos > 0 ? totCustos / pecasPorMes : 0;
+  const custo_total = custoMat + custoMao + cvar;
+  const mg  = parseFloat(document.getElementById('precMargem')?.value)||0;
+  const imp = parseFloat(document.getElementById('precImposto')?.value)||0;
+  const lucroValor   = custo_total * (mg/100);
+  const impostoValor = custo_total * (imp/100);
+  const preco_venda  = custo_total + lucroValor + impostoValor;
+  const lucro_unit   = preco_venda - custo_total - impostoValor;
+  const margemR = preco_venda > 0 ? parseFloat(((lucro_unit/preco_venda)*100).toFixed(1)) : 0;
   await db.from('prec_salvas').insert({nome,custo_total,preco_venda,lucro_unit,margem:margemR,materiais:precMatList,data:today()});
   toast(`Precificação de "${nome}" salva!`);
   await loadAll(); renderAll();
