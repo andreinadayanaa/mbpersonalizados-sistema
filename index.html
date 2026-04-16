@@ -286,6 +286,20 @@
               </div>
             </div>
             <div class="card section-gap">
+              <div class="card-title">🚗 Transporte (Uber p/ Fornecedor)</div>
+              <div style="font-size:12px;color:var(--text-muted);margin-bottom:12px;line-height:1.6;">
+                O custo da corrida de Uber para buscar materiais é dividido entre os produtos daquela compra. Informe o valor da corrida e quantas unidades de produto foram buscadas nessa viagem.
+              </div>
+              <div class="form-row">
+                <div class="form-group"><label>Valor da corrida (R$)</label><input type="number" id="precUberValor" placeholder="ex: 25,00" step="0.01" min="0" oninput="calcPreco()"></div>
+                <div class="form-group"><label>Qtd. produtos comprados</label><input type="number" id="precUberQtd" placeholder="ex: 10" min="1" oninput="calcPreco()"></div>
+              </div>
+              <div class="result-box mt-12">
+                <div><div class="r-label">Custo Uber por unidade</div><div class="r-value" id="rCustoUber" style="font-size:15px;">R$ 0,00</div></div>
+                <div style="font-size:11px;color:var(--text-muted);text-align:right;">= corrida ÷ qtd.</div>
+              </div>
+            </div>
+            <div class="card section-gap">
               <div class="card-title">💰 Margem</div>
               <div class="form-row">
                 <div class="form-group"><label>Lucro desejado (%) — ex: 120 = 120% sobre o custo</label><input type="number" id="precMargem" placeholder="40" min="0" oninput="calcPreco()"></div>
@@ -299,6 +313,7 @@
               <div style="display:grid;gap:10px;">
                 <div class="result-box"><div class="r-label">Custo Materiais</div><div class="r-value" id="rMateriais">R$ 0,00</div></div>
                 <div class="result-box"><div class="r-label">Mão de Obra</div><div class="r-value" id="rMao">R$ 0,00</div></div>
+                <div class="result-box"><div class="r-label">Transporte Uber</div><div class="r-value" id="rUber">R$ 0,00</div></div>
                 <div class="result-box"><div class="r-label">Custos Variáveis (rateio)</div><div class="r-value" id="rCustoVar">R$ 0,00</div></div>
                 <div class="divider"></div>
                 <div class="result-box"><div class="r-label">Custo Total</div><div class="r-value" id="rCustoTotal">R$ 0,00</div></div>
@@ -380,6 +395,7 @@
         <div class="card"><div class="card-title">💰 Lucro por Produto</div><div id="relLucro"></div></div>
       </div>
       <div class="card"><div class="card-title">📋 Todas as Vendas</div><div id="relVendas" style="max-height:400px;overflow-y:auto;"></div></div>
+    </div><!-- /page-relatorios -->
 
     <!-- MARKETPLACE -->
     <div id="page-marketplace" class="page">
@@ -408,7 +424,7 @@
               <input type="number" id="mkCusto" placeholder="0,00" step="0.01" oninput="calcMarketplace()">
             </div>
             <div class="form-group">
-              <label>Custo do Frete (R$)</label>
+              <label>Frete de Envio ao Cliente (R$)</label>
               <input type="number" id="mkFrete" placeholder="0,00" step="0.01" oninput="calcMarketplace()">
             </div>
           </div>
@@ -844,6 +860,11 @@ function calcPreco() {
   set('rCustoHora', fmt(custoHora));
   set('rMaoPeca',   fmt(custoMao));
 
+  // 2b. TRANSPORTE (UBER)
+  const uberVal = parseFloat(document.getElementById('precUberValor')?.value)||0;
+  const uberQtd = parseFloat(document.getElementById('precUberQtd')?.value)||1;
+  const custoUber = uberVal > 0 ? uberVal / Math.max(uberQtd, 1) : 0;
+
   // 3. CUSTOS VARIÁVEIS
   // Rateio: total de custos fixos do mês ÷ estimativa de peças produzidas no mês
   // Estimativa de peças = horas totais do mês ÷ (tempo por peça em horas)
@@ -855,7 +876,10 @@ function calcPreco() {
   }
 
   // 4. CUSTO TOTAL DA PEÇA
-  const custoTotal = custoMat + custoMao + cvar;
+  const custoTotal = custoMat + custoMao + cvar + custoUber;
+
+  set('rCustoUber', fmt(custoUber));
+  set('rUber',      fmt(custoUber));
 
   // 5. PREÇO DE VENDA
   // Fórmula simples: Preço = Custo + Lucro% sobre o custo + Imposto% sobre o custo
@@ -906,7 +930,10 @@ async function salvarPrecificacao() {
   const totCustos = state.custos.reduce((s,c)=>s+c.valor,0);
   const pecasPorMes = (tmp > 0 && totalHorasMes > 0) ? (totalHorasMes*60)/tmp : 100;
   const cvar = totCustos > 0 ? totCustos / pecasPorMes : 0;
-  const custo_total = custoMat + custoMao + cvar;
+  const uberV = parseFloat(document.getElementById('precUberValor')?.value)||0;
+  const uberQ = parseFloat(document.getElementById('precUberQtd')?.value)||1;
+  const custoUber = uberV > 0 ? uberV / Math.max(uberQ, 1) : 0;
+  const custo_total = custoMat + custoMao + cvar + custoUber;
   const mg  = parseFloat(document.getElementById('precMargem')?.value)||0;
   const imp = parseFloat(document.getElementById('precImposto')?.value)||0;
   const lucroValor   = custo_total * (mg/100);
@@ -922,7 +949,7 @@ async function salvarPrecificacao() {
 
 function limparPrec() {
   precMatList=[];
-  ['precNome','moHorasDia','moDias','moSalario','moTempo','precMargem','precImposto'].forEach(id=>{const el=document.getElementById(id);if(el)el.value='';});
+  ['precNome','moHorasDia','moDias','moSalario','moTempo','precMargem','precImposto','precUberValor','precUberQtd'].forEach(id=>{const el=document.getElementById(id);if(el)el.value='';});
   renderPrecMateriais(); calcPreco();
 }
 
@@ -936,11 +963,12 @@ function renderPrecSalvas() {
         <button class="btn btn-danger" onclick="removePrecSalva(${p.id})">🗑️</button>
       </div>
       <div class="grid-4 mt-12" style="gap:10px;">
-        <div class="result-box"><div class="r-label">Custo</div><div class="r-value" style="font-size:16px;">${fmt(p.custo_total)}</div></div>
+        <div class="result-box"><div class="r-label">Custo Total</div><div class="r-value" style="font-size:16px;">${fmt(p.custo_total)}</div></div>
         <div class="result-box result-highlight"><div class="r-label">Preço Sugerido</div><div class="r-value" style="font-size:16px;">${fmt(p.preco_venda)}</div></div>
         <div class="result-box"><div class="r-label">Lucro/unid.</div><div class="r-value text-green" style="font-size:16px;">${fmt(p.lucro_unit)}</div></div>
         <div class="result-box"><div class="r-label">Margem</div><div class="r-value text-gold" style="font-size:16px;">${p.margem}%</div></div>
       </div>
+      ${Array.isArray(p.materiais) && p.materiais.length ? `<div style="margin-top:10px;font-size:12px;color:var(--text-muted);">📦 <b>Materiais:</b> ${p.materiais.map(x=>{const m=state.materiais.find(m=>m.id===x.matId);return m?`<span class="mat-tag" style="margin:2px;">${m.nome} × ${x.qtd}</span>`:'';}).join('')}</div>` : ''}
     </div>`).join('')}</div>`;
 }
 
