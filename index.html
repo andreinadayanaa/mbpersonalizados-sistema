@@ -213,6 +213,15 @@
             <div class="form-group"><label>Custo Unitário (R$)</label><input type="number" id="estCusto" placeholder="0,00" step="0.01"></div>
             <div class="form-group"><label>Estoque Mínimo</label><input type="number" id="estMin" placeholder="5" min="0"></div>
           </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label>Tipo de Produto</label>
+              <select id="estTipo">
+                <option value="produzido">✅ Produzido — já personalizado/pronto</option>
+                <option value="para_produzir">🔧 Para Produzir — em branco, aguardando personalização</option>
+              </select>
+            </div>
+          </div>
           <button class="btn btn-primary" id="btnEstoque" onclick="addEstoque()">➕ Adicionar ao Estoque</button>
         </div>
         <div class="card"><div class="card-title">📋 Histórico de Movimentações</div><div id="historicoEstoque" style="max-height:280px;overflow-y:auto;"></div></div>
@@ -222,7 +231,12 @@
           <span>📦 Produtos em Estoque</span>
           <input type="text" id="estSearch" placeholder="🔍 Buscar..." style="width:200px;padding:6px 10px;font-size:12px;" oninput="renderEstoque()">
         </div>
-        <div id="tabelaEstoque"></div>
+        <!-- Abas Produzidos / Para Produzir -->
+        <div class="tabs" style="margin-bottom:0;margin-top:4px;">
+          <div class="tab active" id="tabProduzido" onclick="switchEstoqueTab('produzido')">✅ Produzidos</div>
+          <div class="tab" id="tabParaProduzir" onclick="switchEstoqueTab('para_produzir')">🔧 Para Produzir</div>
+        </div>
+        <div id="tabelaEstoque" style="margin-top:16px;"></div>
       </div>
     </div>
 
@@ -535,6 +549,7 @@ const { createClient } = supabase;
 const db = createClient(SUPABASE_URL, SUPABASE_KEY);
 
 let state = { estoque:[], vendas:[], materiais:[], custos:[], precSalvas:[], historico:[], perdas:[] };
+let estoque_tab = 'produzido'; // 'produzido' | 'para_produzir'
 let precMatList = [];
 
 function toast(msg, type='success') {
@@ -603,24 +618,32 @@ function showPrecTab(id, el) {
 }
 
 // ESTOQUE
+function switchEstoqueTab(tab) {
+  estoque_tab = tab;
+  document.getElementById('tabProduzido').classList.toggle('active', tab === 'produzido');
+  document.getElementById('tabParaProduzir').classList.toggle('active', tab === 'para_produzir');
+  renderEstoque();
+}
+
 async function addEstoque() {
   const nome = document.getElementById('estNome').value.trim();
   const qtd = parseFloat(document.getElementById('estQtd').value)||0;
   const unidade = document.getElementById('estUnidade').value.trim()||'unidade';
   const custo = parseFloat(document.getElementById('estCusto').value)||0;
   const min = parseFloat(document.getElementById('estMin').value)||0;
+  const tipo = document.getElementById('estTipo').value || 'produzido';
   if(!nome) return toast('Informe o nome do produto.','error');
   if(qtd<=0) return toast('Informe uma quantidade válida.','error');
   setBtnLoading('btnEstoque',true,'➕ Adicionar ao Estoque');
-  const existing = state.estoque.find(e=>e.nome.toLowerCase()===nome.toLowerCase());
+  const existing = state.estoque.find(e=>e.nome.toLowerCase()===nome.toLowerCase() && (e.tipo||'produzido')===tipo);
   if(existing) {
     await db.from('estoque').update({qtd:existing.qtd+qtd}).eq('id',existing.id);
     await db.from('historico').insert({tipo:'entrada',produto:nome,qtd,data:today(),obs:'Adição manual'});
     toast(`${qtd} ${unidade} adicionado(s) ao estoque de "${nome}".`);
   } else {
-    await db.from('estoque').insert({nome,qtd,unidade,custo,min});
+    await db.from('estoque').insert({nome,qtd,unidade,custo,min,tipo});
     await db.from('historico').insert({tipo:'entrada',produto:nome,qtd,data:today(),obs:'Cadastro inicial'});
-    toast(`Produto "${nome}" cadastrado!`);
+    toast(`Produto "${nome}" cadastrado como ${tipo==='produzido'?'Produzido':'Para Produzir'}!`);
   }
   ['estNome','estQtd','estCusto','estMin'].forEach(id=>{const el=document.getElementById(id);if(el)el.value='';});
   await loadAll(); renderAll();
@@ -629,13 +652,20 @@ async function addEstoque() {
 
 function renderEstoque() {
   const q = document.getElementById('estSearch')?.value?.toLowerCase()||'';
-  const list = state.estoque.filter(e=>e.nome?.toLowerCase().includes(q));
+  const list = state.estoque.filter(e=>
+    e.nome?.toLowerCase().includes(q) &&
+    (e.tipo||'produzido') === estoque_tab
+  );
   const el = document.getElementById('tabelaEstoque'); if(!el) return;
-  if(!list.length){el.innerHTML=empty('Nenhum produto cadastrado.');return;}
+  const tabLabel = estoque_tab === 'produzido' ? 'produzidos' : 'para produzir';
+  if(!list.length){el.innerHTML=empty(`Nenhum produto ${tabLabel} cadastrado.`);return;}
   el.innerHTML=`<table><thead><tr><th>Produto</th><th>Estoque</th><th>Unidade</th><th>Custo Unit.</th><th>Status</th><th>Ações</th></tr></thead><tbody>
   ${list.map(e=>{
     const s=e.qtd<=0?`<span class="badge badge-red">Sem estoque</span>`:e.qtd<=(e.min||0)?`<span class="badge badge-gold">Baixo</span>`:`<span class="badge badge-green">OK</span>`;
-    return`<tr><td><b>${e.nome}</b></td><td><b style="font-size:16px;">${e.qtd}</b></td><td>${e.unidade||'unidade'}</td><td>${fmt(e.custo)}</td><td>${s}</td><td><button class="btn btn-danger" onclick="removeEstoque(${e.id})">🗑️</button></td></tr>`;
+    return`<tr><td><b>${e.nome}</b></td><td><b style="font-size:16px;">${e.qtd}</b></td><td>${e.unidade||'unidade'}</td><td>${fmt(e.custo)}</td><td>${s}</td><td style="display:flex;gap:6px;align-items:center;">
+      <button class="btn btn-outline btn-sm" title="${estoque_tab==='produzido'?'Mover para Para Produzir':'Mover para Produzidos'}" onclick="toggleEstoqueTipo(${e.id})">${estoque_tab==='produzido'?'🔧':'✅'}</button>
+      <button class="btn btn-danger" onclick="removeEstoque(${e.id})">🗑️</button>
+    </td></tr>`;
   }).join('')}</tbody></table>`;
 }
 
@@ -643,6 +673,15 @@ async function removeEstoque(id) {
   if(!confirm('Remover produto?')) return;
   await db.from('estoque').delete().eq('id',id);
   toast('Produto removido.');
+  await loadAll(); renderAll();
+}
+
+async function toggleEstoqueTipo(id) {
+  const prod = state.estoque.find(e=>e.id===id); if(!prod) return;
+  const novoTipo = (prod.tipo||'produzido') === 'produzido' ? 'para_produzir' : 'produzido';
+  const label = novoTipo === 'produzido' ? 'Produzido' : 'Para Produzir';
+  await db.from('estoque').update({tipo: novoTipo}).eq('id', id);
+  toast(`"${prod.nome}" movido para ${label}.`);
   await loadAll(); renderAll();
 }
 
